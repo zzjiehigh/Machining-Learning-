@@ -1,0 +1,77 @@
+---
+title: "random forest"
+output: html_document
+date: "2023-12-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+library(tidyverse)
+library(visdat)
+library(ggplot2)
+library(tidymodels)
+library(corrplot)
+library(ggthemes)
+library(janitor)
+library(naniar)
+library(rpart)
+library(rpart.plot)
+library(mice)
+library(tidymodels)
+library(themis)
+library(naniar)
+# install.packages("xgboost")
+library(xgboost)
+# install.packages("ranger")
+library(ranger)
+library(discrim)
+tidymodels_prefer()
+load("/Users/zejiegao/Desktop/PSTAT231/Predential life Insurance/Sandy's Final Project/risk_analysis_data.RData")
+```
+
+```{r}
+rf_class <- rand_forest(mtry = tune(), 
+                           trees = tune(), 
+                           min_n = tune()) %>%
+  set_engine("ranger") %>% 
+  set_mode("classification")
+
+rf_class_wf <- workflow() %>% 
+  add_model(rf_class) %>% 
+  add_recipe(risk_recipe)
+
+rf_grid <- grid_regular(mtry(range = c(1, 8)), 
+                        trees(range = c(1, 10 )),
+                        min_n(range = c(1, 10)),
+                        levels = 5)
+rf_grid
+```
+
+```{r}
+tune_rf_fit <- tune_grid(
+  rf_class_wf,
+  resamples = risk_fold,
+  grid = rf_grid
+)
+```
+
+```{r}
+autoplot(tune_rf_fit) + theme_minimal()
+show_best(tune_rf_fit, n = 1)
+best_rf_risk <- select_best(tune_rf_fit, metric = "roc_auc")
+```
+```{r}
+final_wf <- finalize_workflow(rf_class_wf , best_rf_risk)
+
+final_rf_fit <- fit(final_wf, risk_train)
+```
+
+
+```{r}
+save(tune_rf_fit, final_rf_fit, file = "final_rf_fit.rda")
+```
+

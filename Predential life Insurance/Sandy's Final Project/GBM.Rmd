@@ -1,0 +1,58 @@
+---
+title: "GBM"
+output: html_document
+date: "2023-12-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+load("/Users/zejiegao/Desktop/PSTAT231/Predential life Insurance/Sandy's Final Project/risk_analysis_data.RData")
+```
+
+```{r}
+bt_class <- boost_tree(mtry = tune(), 
+                           trees = tune(), 
+                           learn_rate = tune()) %>%
+  set_engine("xgboost") %>% 
+  set_mode("classification")
+
+bf_class_wf <- workflow() %>% 
+  add_model(bt_class) %>% 
+  add_recipe(risk_recipe)
+
+bt_grid <- grid_regular(mtry(range = c(1, 6)), 
+                        trees(range = c(400, 700)),
+                        learn_rate(range = c(-10, -1)),
+                        levels = 5)
+```
+
+```{r}
+tune_bt_fit <- tune_grid(
+    bf_class_wf,
+    resamples = risk_fold,
+    grid = bt_grid
+)
+```
+
+```{r}
+autoplot(tune_bt_fit) + theme_minimal()
+```
+
+```{r}
+show_best(tune_bt_fit, n = 1, metric = "roc_auc")
+best_bt_risk<- select_best(tune_bt_fit, metric = "roc_auc")
+```
+```{r}
+final_wf <- finalize_workflow(bf_class_wf, best_bt_risk)
+
+final_bt_fit <- fit(final_wf, risk_train)
+```
+
+```{r}
+save(tune_bt_fit, final_bt_fit, file = "final_bt_fit.rda")
+```
+
+

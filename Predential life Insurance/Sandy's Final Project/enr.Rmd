@@ -1,0 +1,82 @@
+---
+title: "linear discriminant analysis"
+output: html_document
+date: "2023-12-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(visdat)
+library(ggplot2)
+library(tidymodels)
+library(corrplot)
+library(ggthemes)
+library(janitor)
+library(naniar)
+library(rpart)
+library(rpart.plot)
+library(mice)
+library(tidymodels)
+library(themis)
+library(naniar)
+# install.packages("xgboost")
+library(xgboost)
+# install.packages("ranger")
+library(ranger)
+library(discrim)
+tidymodels_prefer()
+load("/Users/zejiegao/Desktop/PSTAT231/Predential life Insurance/Sandy's Final Project/risk_analysis_data.RData")
+```
+
+```{r}
+en_spec_risk <- logistic_reg(mixture = tune(), 
+                              penalty = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("glmnet")
+
+
+en_workflow_risk <- workflow() %>% 
+  add_recipe(risk_recipe) %>% 
+  add_model(en_spec_risk)
+
+en_grid <- grid_regular(penalty(range = c(0, 1),
+                                     trans = identity_trans()),
+                        mixture(range = c(0, 1)),
+                             levels = 10)
+
+tune_res_risk <- tune_grid(
+  en_workflow_risk,
+  resamples = risk_fold, 
+  grid = en_grid
+)
+```
+
+
+```{r}
+autoplot(tune_res_risk)
+collect_metrics(tune_res_risk)
+best_en_risk <- select_by_one_std_err(tune_res_risk,
+                          metric = "roc_auc",
+                          penalty,
+                          mixture
+                          )
+best_en_risk
+
+en_final_risk <- finalize_workflow(en_workflow_risk,
+                                      best_en_risk)
+
+en_final_risk <- fit(en_final_risk, 
+                        data = risk_train)
+```
+
+```{r}
+save(tune_res_risk,en_final_risk, file = "final_enr_fit.rda")
+```
+
+

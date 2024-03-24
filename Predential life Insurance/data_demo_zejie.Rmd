@@ -1,0 +1,76 @@
+---
+title: "data demo_zejie"
+output: html_document
+date: "2023-10-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE,
+                      warning = FALSE)
+```
+
+```{r}
+library(tidyverse) 
+```
+
+## An overview of your dataset
+Q: What does it include? Where and how will you be obtaining it? Include the link and source. About how many observations? How many predictors?
+What types of variables will you be working with? Is there any missing data? About how much? Do you have an idea for how to handle it?
+
+A: The prudential life insurance dataset consists applicant information such as age, medical history, lifestyle habits (like smoking), family medical history, and other factors that could be predictive of life insurance risk. The dataset is available on Kaggle's competition page: Prudential Life Insurance Assessment. There are 59381 observations on the train.csv and 7911 observations on the test.csv, with same predictors. The dataset includes both categorical and numerical variables. Yes, there is missing data. 
+
+```{r}
+library(visdat)
+train <- read_csv("train.csv")
+test <- read_csv("test.csv")
+# Percentage of missing data for each column in train
+missing_percentage_train <- sapply(train, function(x) mean(is.na(x)) * 100)
+print(missing_percentage_train)
+# Percentage of missing data for each column in test
+missing_percentage_test <- sapply(test, function(x) mean(is.na(x)) * 100)
+print(missing_percentage_test)
+# Overall percentage of missing data in train
+overall_missing_train <- mean(is.na(train)) * 100
+print(overall_missing_train)
+# Overall percentage of missing data in test
+overall_missing_test <- mean(is.na(test)) * 100
+print(overall_missing_test)
+```
+
+This indicates that both datasets have slightly over 5% of their data missing, which is a moderate amount. Considering this amount of missing data, I would do both deletion and imputation methods. 
+
+## An overview of your research question(s)
+Q: What variable(s) are you interested in predicting? What question(s) are you interested in answering? Name your response/outcome variable(s) and briefly describe it/them. Will these questions be best answered with a classification or regression approach? Which predictors do you think will be especially useful? Is the goal of your model descriptive, predictive, inferential, or a combination? Explain.
+
+A: I am interested in predicting ordinal measure of risk that has 8 levels. I want find a model to classifying applicants risk level given the attributes of a life insurance applicant?. The response or outcome variable is "Response." It's an ordinal measure of risk that ranges across 8 levels. A lower level might indicate a low-risk applicant, while a higher level could indicate a higher-risk applicant. This questions be best answered with classification. I believe health-related factors like illness will be especially useful. My main goal is predictive that is to predict a certain risk level with known input. It also could be inferentail that is to analysis which variables play a influential role in this response result. 
+
+## Proposed project timeline
+When do you plan on having your data set loaded, beginning your exploratory data analysis, etc? Provide a general timeline for the rest of the quarter.
+
+Week 4: General outline and data loading.Exploring data
+
+Week 5: Setting up models
+
+Week 6: Generating a prediction models and get the result from best model.
+
+Week 7: Using test to get the accuracy of out model
+
+Week 8: write down the conclusion
+
+Week 9: rewrite the abstract and organize written paragraph
+
+## Any questions or concerns
+Are there any problems or difficult aspects of the project you anticipate?
+Any specific questions you have for me/the instructional team?
+
+What steps should be taken when dealing with a missing variable using linear imputation? To obtain the best model for prediction, is it necessary to test each model individually? Is there another metric to determine the model's fitness before using the test data?
+```{r}
+t <- 30
+lambda <- 1/2
+N <- rpois(1,lambda*t)
+unifs <- runif(N,0,t)
+arrivals <- sort(unifs)
+arrivals
+```
+
+

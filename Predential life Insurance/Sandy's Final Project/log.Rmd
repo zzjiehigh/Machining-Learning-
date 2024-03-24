@@ -1,0 +1,72 @@
+---
+title: "Logistic regression"
+output: html_document
+date: "2023-12-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(visdat)
+library(ggplot2)
+library(tidymodels)
+library(corrplot)
+library(ggthemes)
+library(janitor)
+library(naniar)
+library(rpart)
+library(rpart.plot)
+library(mice)
+library(tidymodels)
+library(themis)
+library(naniar)
+# install.packages("xgboost")
+library(xgboost)
+# install.packages("ranger")
+library(ranger)
+library(discrim)
+tidymodels_prefer()
+```
+
+```{r}
+load("/Users/zejiegao/Desktop/PSTAT231/Predential life Insurance/Sandy's Final Project/risk_analysis_data.RData")
+```
+
+```{r}
+# Step 1: Set the engine, and mode to classification.
+log_reg <- logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+
+# Step 2: Create the workflow using the LOG model and your recipe
+log_wkflow <- workflow() %>% 
+  add_model(log_reg) %>% 
+  add_recipe(risk_recipe)
+
+# Step 3: Fit the model to the resampling object (risk_fold)
+log_fit <- fit_resamples(log_wkflow, resamples = risk_fold)
+
+# Collect and filter metrics for linear regression model
+log_metrics <- log_fit %>% 
+  collect_metrics() %>% 
+  filter(.metric == "roc_auc")
+
+# Step 5: Select the best model based on ROC_AUC
+best_log_model <- log_fit %>% 
+  select_best(metric = "roc_auc")
+```
+
+
+```{r}
+final_wf <- finalize_workflow(log_wkflow , best_log_model)
+
+final_log_fit <- fit(final_wf, risk_train)
+```
+
+
+```{r}
+save(final_log_fit,, file = "final_log_fit.rda")
+```

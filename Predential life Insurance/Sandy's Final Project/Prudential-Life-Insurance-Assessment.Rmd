@@ -1,0 +1,628 @@
+---
+title: "Prudential Life Insurance Assessment"
+author: "Zejie(Sandy) Gao"
+subtitle: "Using Machine Learning Models and Prudential Life Insurance Data to Predict the Life Insurance Risk of Applicants"
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: true
+    code_folding: hide
+date: "UCSB Fall 2023"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(visdat)
+library(ggplot2)
+library(tidymodels)
+library(corrplot)
+library(ggthemes)
+library(janitor)
+library(naniar)
+library(rpart)
+library(rpart.plot)
+library(mice)
+library(tidymodels)
+library(themis)
+library(naniar)
+# install.packages("xgboost")
+library(xgboost)
+# install.packages("ranger")
+library(ranger)
+library(discrim)
+library(vip)
+tidymodels_prefer()
+```
+
+# *Abstract*
+
+This project was focused on predicting insurance risk levels using the Prudential Life Insurance Assessment dataset, utilizing machine learning models adept at handling high-dimensional, binary classification data. The initial phase involved an exploratory data analysis (EDA), essential for gaining a fundamental understanding of the data set's characteristics. Following this, data preprocessing was undertaken to ensure optimal model performance. The next step was to fit the data into a selection of models, carefully chosen for evaluation. This process included a detailed assessment of each model's performance on both the training and test sets. The culmination of this effort was the selection of the best-performing model, which emerged as our final candidate for predicting insurance risk levels effectively.
+
+# Table of contents
+
+1.  Introduction
+
+2.  Exploratory Data Analysis (EDA)
+
+3.  Data Splitting and Cross-Validation
+
+4.  Model Fitting
+
+5.  Model Performance and Selection
+
+6.  Conclusion
+
+# 1. Introduction
+
+## 1.1 Inspiration & Relevance
+
+Imagine being asked by an insurance broker, 'What is your risk level?' Such a question might seem unusual, even perplexing, especially from a consumer's standpoint. Assessing one's own risk for life insurance purposes is often a challenging task for many, including myself. Determining my own 'risk level' in life is not straightforward. This situation underscores a fundamental disconnect in the life insurance industry: consumers, the primary purchasers of life insurance, typically lack the necessary expertise to accurately gauge their risk levels.
+
+A more realistic scenario involves insurance brokers conducting comprehensive risk assessments and then recommending life insurance products based on these evaluations.
+
+My journey in Actuarial Science has provided a foundation in understanding how premiums are determined and the integral role of actuaries. Now, after studying machine learning, I am eager to apply these advanced techniques to the life insurance sector.
+
+![Figure 1: Article from NAIC](image/insurance.png)
+
+## 1.![]()2 Problem & Objectives
+
+My journey in this project begins with a clear yet challenging task: to predict the insurance risk level of new applicants using their anonymized personal and health data. The normalization of this data, essential for privacy, poses a unique challenge due to the lack of descriptive labels for many variables.
+
+Navigating through this anonymized data, I aim to discern patterns that differentiate lower-risk applicants from higher-risk ones. My focus is particularly drawn to the potential influence of health-related factors.
+
+The adventure of this project lies in two key areas. Predictively, I intend to accurately forecast an applicant's risk level using classification techniques. Inferentially, I'm set to explore which factors most significantly impact these risk levels.
+
+## 1.3 Data Description
+
+My project is based on the Prudential Life Insurance Assessment data set, sourced from Kaggle. This risk data set, containing 59,381 observations, offers extensive information on insurance applicants. The data set can be accessed at "[https://www.kaggle.com/c/prudential-life-insurance-assessment"](https://www.kaggle.com/c/prudential-life-insurance-assessment%22).The data set is structured with a diverse range of variables, both categorical and numerical. These variables cover essential applicant demographics, detailed medical histories, and various lifestyle indicators. In total, there are 128 predictors in the data set: 13 of these are continuous, 5 are discrete, and the remaining are categorical.
+
+A key element of the Prudential Life Insurance Assessment data set is the pre-cleansing and normalization process, designed to protect the privacy of insurance applicants. Given the data set's extensive size, comprising 59,381 observations, I've chosen to analyze a smaller subset. This decision stems from computational limitations, as processing the entire data set exceeds the capabilities of my personal computer. Furthermore, I've adjusted the approach to risk level classification. Instead of working with the original eight risk levels, I've consolidated them into two broad categories, creating a binary system that distinguishes between higher and lower risk levels.
+
+# 2. Exploratory Data Analysis (EDA)
+
+This section is an Exploratory Data Analysis of the insurance data set. My objective is to gain a comprehensive understanding of the data's features and nuances. This process begins with an initial examination followed by addressing any missing values. I will also employ descriptive statistics to analyze the data set in depth. To complement this, visualizations will be used to identify and illustrate key patterns, ensuring that my analysis is closely aligned with the research goals.
+
+## 2.1 Loading and Initial Examination
+
+```{r, message=FALSE, warning=FALSE}
+# Loading the data
+risk_data <- read_csv("risk.csv")
+
+# Cleaning predictor names
+risk_data <- clean_names(risk_data)
+```
+
+### Missing Values: Check and summarize any missing data in the data set
+
+```{r, message=FALSE, warning=FALSE}
+# Overall percentage of missing data in risk
+overall_missing_risk <- mean(is.na(risk_data)) * 100
+cat("Overall percentage of missing value in risk:", overall_missing_risk, "%\n")
+```
+
+```{r, message=FALSE, warning=FALSE}
+# Identify variables with any missing values
+variables_with_missing <- risk_data %>%
+  summarise_all(funs(any(is.na(.)))) %>%
+  gather(key = "variable", value = "has_missing") %>%
+  filter(has_missing) %>%
+  select(variable)
+
+# Subset the original data set to keep only variables with missing values
+risk_with_missing_only <- risk_data %>%
+  select(one_of(variables_with_missing$variable))
+
+# Plot missing data for the subset
+vis_miss(risk_with_missing_only) + coord_flip()
+```
+
+The presence of 5.171885% missing values in the risk data set necessitates a careful approach to ensure the integrity of the analysis. The visualization focusing on variables with missing values is practical, avoiding an overcrowded plot that could obscure the crucial information about the extent of missingness in each predictor.
+
+I opt to eliminate columns with more than 50% missing values, especially if they lack a clear contribution to the model's predictive power. With an ample data set exceeding 50000 observations, even a 40% absence of data is significant and could skew results.
+
+Consequently, variables like `medical_history_32`, `medical_history_24`, `medical_history_15`, `medical_history_10`, `family_hist_5`, `family_hist_3`, `family_hist_2`, `insurance_history_5` are removed.
+
+Additionally, the data set contains 48 dummy variables linked to medical keywords. Since these variables are just denote with numbers without additional context or explanation, I've decided to remove them to make the data set simpler and more manageable.
+
+Finally, the removal of the 'id' column is a logical step, as it serves no predictive function and could potentially introduce noise into the modeling process. By purging these elements, the data set is refined for a more focused and potentially more accurate modeling endeavor.
+
+```{r, message=FALSE, warning=FALSE}
+medical_keywords <- paste0("medical_keyword_", 1:48)
+drop <- c("medical_history_32", "medical_history_24", "medical_history_15", "medical_history_10", "id","family_hist_5","family_hist_3", "family_hist_2","insurance_history_5",medical_keywords) 
+
+# Drop the columns from the data set
+risk_data <- risk_data[,!(names(risk_data) %in% drop)]
+```
+
+```{r, message=FALSE, warning=FALSE}
+miss_case_table(risk_data)
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+# First, add a new column that counts the number of missing values per case (row)
+risk_data <- risk_data %>% 
+  mutate(n_miss_in_case = rowSums(is.na(.))) %>%
+  filter(!(n_miss_in_case %in% c(3,4,5))) %>% 
+  select(-n_miss_in_case)
+
+miss_var_summary(risk_data)
+```
+
+The **`miss_case_table()`** shows that cases with 0 to 2 missing values make up 98% of the data, while those with 3, 4, or 5 missing values are less than 2%. Therefore, I'll remove cases with 3,4,or 5 missing values to maintain data quality.
+
+```{r}
+risk_data <- risk_data %>% filter(!is.na(employment_info_1))
+```
+
+Since missing values in **`employment_info_1`** account for less than 1% of the data, it's practical to delete these instances directly.
+
+For the other variables with missing values, I will employ imputation methods during the recipe creation process using **`step_impute()`**. This will preserve as much data as possible for the analysis. To remind me imputing, I will denote a list `need_impute` of missing variables.
+
+```{r, message=FALSE, warning=FALSE}
+need_impute <- c("family_hist_4","employment_info_6","medical_history_1","employment_info_4")
+risk_data <- risk_data[1:1123,] %>%
+  mutate(
+    # Correctly convert 'response' from factor to numeric
+    response = ifelse(response >= 6, 1, 0)
+  )
+
+risk_data$response <- factor(risk_data$response, levels = c(0, 1),labels = c( "Low","High"))
+```
+
+```{r}
+# Converting family_hist_1 to factors
+for (i in 1) {
+  risk_data[[paste("family_hist", i, sep = "_")]] <- as.factor(risk_data[[paste("family_hist", i, sep = "_")]])
+} 
+
+# Converting employment_info_2, employment_info_3, and employment_info_5 to factors
+for (i in c(2, 3, 5)) {
+  risk_data[[paste("employment_info", i, sep = "_")]] <- as.factor(risk_data[[paste("employment_info", i, sep = "_")]])
+}
+
+# Converting all listed insurance_history variables to factors
+for (i in c(1, 2, 3, 4, 7, 8, 9)) {
+  risk_data[[paste("insurance_history", i, sep = "_")]] <- as.factor(risk_data[[paste("insurance_history", i, sep = "_")]])
+} 
+
+# Converting all listed medical_history variables to factors
+for (i in c(2:9, 11:14, 16:23, 25:31, 33:41)) {
+  risk_data[[paste("medical_history", i, sep = "_")]] <- as.factor(risk_data[[paste("medical_history", i, sep = "_")]])
+} 
+
+# Converting product_info_1 through product_info_7 to factors
+for (i in c(1, 2, 3, 5,6, 7)) {
+  risk_data[[paste("product_info", i, sep = "_")]] <- as.factor(risk_data[[paste("product_info", i, sep = "_")]])
+}
+
+# Converting insuredinfo_1 through insuredinfo_7 to factors
+for (i in 1:7) {
+  risk_data[[paste("insured_info", i, sep = "_")]] <- as.factor(risk_data[[paste("insured_info", i, sep = "_")]])
+}
+risk_data %>% dim()
+```
+
+Since the original data is too big to run, I only select part of it from the original data set. I do this after missing values because it would capture more features for the whole data. Here we can see the current dimensions of our data set after addressing the missing data values, selecting part of the data set, and factoring all the variables. We have 1123 observations and 71 variables
+
+## 2.2 Descriptive Statistics
+
+Data Dictionary (Predictors' Meaning):
+
+-   `product_info_1-7`: ((1, 2, 3, 5,6, 7 categorical)(4 numeric) A set of normalized variables relating to the product applied for.
+
+-   `ins_age`: (numeric) Normalized age of applicant.
+
+-   `ht` , : Normalized height of applicant.
+
+-   `wt`: Normalized weight of applicant.
+
+-   `bmi`: (numeric) Normalized BMI of applicant.
+
+-   `employment_info_1-6`: (1,4,6 as numeric, 2,3,5 as catergorical) A set of normalized variables relating to the employment history of the applicant.
+
+-   `insured_info_1-7`: (categorical) A set of normalized variables providing information about the applicant.
+
+-   `insurance_history_1,2,3,4,6,7,8,9`: (categorical) A set of normalized variables relating to the insurance history of the applicant.
+
+-   `family_hist_`: (1 as categorical, 4 as numeric) Normalized variables relating to the family history of the applicant.
+
+-   `medical_history_(2-9,11-14,16-23,25-31,33-41)`: (categorical) A set of normalized variables relating to the medical history of the applicant.
+
+-   `response`: This is the target variable, an ordinal variable relating to the final decision associated with an application, represened higher risk level when response = 1 and lower risk level when response = 0.
+
+## 2.3 Visual EDA
+
+### Correlation Analysis:
+
+```{r}
+# Calculate the correlation matrix
+risk_complete <- risk_data[, sapply(risk_data, is.numeric)]
+risk_complete <- na.omit(risk_complete)  # Removes rows with any NA values
+cor_matrix <- cor(risk_complete)
+
+# Create a heatmap of the correlation matrix
+corrplot(cor_matrix, method = "color", type = "upper", order = "hclust",
+         tl.col = "black", tl.srt = 45, addCoef.col = "black")
+```
+
+The correlation graph provides valuable insights into the relationships between different variables. Notably, there is a strong positive correlation between weight weight and body mass index BMI, which aligns with the fact that BMI is calculated using weight and height. Given this redundancy, it makes sense to exclude weight from our analysis to avoid collinearity.
+
+Additionally, insurance age `ins_age` shows a strong correlation with `family_hist_4`. Considering that `ins_age` is more straightforward to interpret, I will retain it in the analysis and exclude `family_hist_4`. This selective approach in our recipe helps mitigate collinearity and refines the model for more accurate predictions.
+
+In order to remind me on recipe, I will denote a list contain high correlation that need decide which one to use.
+
+```{r}
+need_decide <- c("wt & bmi", "ins_age & family_history_4")
+```
+
+### Risk Level Distribution :
+
+Before moving into the distribution of risk levels, it's important to consider a fundamental question that influences the dynamics of life insurance. If you are in good health and your occupation carries no inherent risk, have you contemplated the necessity of life insurance? Conversely, if you find yourself in poor health or a high-risk job, does the prospect of purchasing life insurance seem more pressing? These considerations of personal health and occupational hazards are pivotal, as they can greatly influence an individual's decision to opt for life insurance, potentially affecting the distribution of risk levels within our data set. Understanding these human factors is crucial as they offer context to the patterns we might observe in the risk classifications.
+
+```{r}
+# Bar chart of the Response variable
+ggplot(risk_data, aes(x=as.factor(response))) + 
+  geom_bar(fill="blue") +
+  ggtitle("Distribution of the risk level") +
+  xlab("Risk Level") +
+  ylab("Count")
+```
+
+The bar chart displayed indicates a significant difference in the distribution of risk levels. There are notably more observations classified as 'High' risk compared to those deemed 'Low' risk. Specifically, the 'Low' risk category contains less than one-third of the number of observations in the 'High' risk category. This could reflect various factors, including the possibility that individuals with higher risk factors are more inclined to apply for life insurance, or it may suggest that the criteria used to define 'High' risk are more commonly met. This can also represent a slight imbalance in the levels of outcome which may need consider step_upsample in the recipe.
+
+### Risk Level Distribution with ins_age:
+
+```{r}
+# Visualizing the distribution of 'response' across different categories of 'product_info_2'
+ggplot(risk_data, aes(x = ins_age, fill = as.factor(response))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Distribution of Response by Insurance Age", x = "ins_age", y = "Count") +
+  theme_minimal()
+```
+
+The histogram of the risk level distribution categorized by `ins_age`, even after normalization, shows what appears to be a bimodal distribution. The peaks around 0.25 and 0.6 suggest that there are two age groups where both low and high response frequencies are notably higher. This pattern might indicate that certain age ranges are more prevalent or considered more significant when determining risk levels for life insurance. Such a distribution could reflect different life stages or insurance needs, which would be a relevant factor in the modeling and analysis of insurance risk.
+
+### Risk Level Distribution with wt and bmi:
+
+```{r}
+# Visualizing the distribution of 'response' across different categories of 'product_info_2'
+# Visualizing the distribution of 'response' with respect to 'ins_age' and 'bpi'
+ggplot(risk_data, aes(x = wt, y = bmi, color = as.factor(response))) +
+  geom_point(alpha = 0.6) +
+  labs(title = "Distribution of Response with Weight and BMI", 
+       x = "Weight", y = "BMI", color = "Response") +
+  theme_minimal()
+
+```
+
+The scatter plot provided illustrates the distribution of risk levels about weight wt and body mass index BMI. It reinforces the strong correlation between these two factors. The data points form distinct clusters by response level, with observable trends in both weight and BMI dimensions. This suggests that there may be a pattern where certain ranges of weight and BMI are more associated with either a high or low-risk classification. The visual representation of colinearity between weight and BMI within each risk response group supports the decision to focus on one variable to avoid redundancy in the predictive modeling.
+
+### Distribution of Risk Level across Product Information:
+
+```{r}
+# Combine the plots into a single graph with facet_wrap
+risk_data_long <- risk_data %>%
+  select(product_info_1, product_info_5, product_info_6, product_info_7) %>%
+  pivot_longer(cols = everything(), names_to = "product_info", values_to = "value")
+
+ggplot(risk_data_long, aes(x=as.factor(value))) + 
+  geom_bar(fill="blue") +
+  facet_wrap(~product_info, scales = "free_x") +
+  ggtitle("Distribution of Risk Level across Product Information") +
+  xlab("Risk Level") +
+  ylab("Count")
+```
+
+The distribution of the `product_info_` variables in the data set shows a pronounced skew towards one category, suggesting limited variability. To refine the model and enhance its predictive accuracy, I will use `step_nzv(all_predictors())` in the recipe to improve these near-zero variance predictors, thereby reducing noise and focusing on more informative variables.
+
+### Distribution of the zero variance variable:
+
+```{r, warning=FALSE}
+which(apply(risk_data, 2, var) == 0)
+```
+
+```{r}
+ggplot(risk_data, 
+       aes(x=as.factor(medical_history_35))) + 
+       geom_bar(fill="blue") + 
+       ggtitle("Distribution of the medical history 35") + 
+       xlab("Risk Level") + 
+       ylab("Count")
+```
+
+When I did SVM model, there is a code that is not working and saying that some one my column is not defied. After researching on the bug, I find out that using only `step_nzv()` is not enough to remove low variance predictor, since it does not remove the predictor with zero variance.
+
+# 3. Data splitting and cross-validation
+
+Having addressed missing values, and conducted visual exploratory data analysis, the next step is to prepare the data set for the modeling process. This involves splitting the data into training and testing subsets, which will enable the evaluation of model performance on unseen data. Following the split, I will implement k-fold cross-validation on the training set. This technique not only reduces the variance of the performance estimate but also maximizes the use of available data for training. In the end, I will create a recipe ready for fitting in various models.
+
+## 3.1 Data split
+
+Since I do no have very large training data set, 75% would be my best choice for mentioning more data for training.
+
+```{r}
+set.seed(1123)
+
+risk_split <- risk_data %>%
+  initial_split(strata = response, prop = 0.75)
+risk_train <- training(risk_split)
+risk_test <- testing(risk_split)
+
+# Dimensions of both train and test set on risk data
+dim_train <- dim(risk_train)
+cat("Dimensions of our risk training data set:", dim_train[1],"x",dim_train[2])
+```
+
+```{r}
+dim_test <- dim(risk_test)
+cat("Dimensions of our risk testing data set:", dim_test[1],"x",dim_test[2])
+```
+
+## 3.2 k-fold cross-validation
+
+Considering the modest size of the training set and the need for each fold to be representative, I've decided to proceed with 5-fold cross-validation. This approach balances the need for a sufficient number of observations in each training fold while still reserving a substantial portion for validation.
+
+```{r}
+risk_fold <- vfold_cv(risk_train, strata = response, v = 5)
+```
+
+## 3.3 Building Our Recipe
+
+```{r}
+need_decide
+need_impute
+```
+
+For the two sets of variables, prioritizing **`bmi`** and **`ins_age`** for inclusion in your recipe is sensible due to their clear definitions and likely significance in determining insurance risk.
+
+Regarding the four variables requiring imputation, it's important to consider the nature of each variable when selecting an imputation method. Since they all continuous variables, mean or median imputation could be appropriate.
+
+Since my original data have been already normalized, additional normalization may not be necessary. That why I did not center and scale my predictors in the recipe. Additionally, the Distribution of Risk Level across Product Information in 2 section indicate the need of `step_nzv(all_predictors()`. Also not using `step_upsample()` is that I want make use of random forest whicg is very good at work with imblanced model.
+
+Lastly, I also remove `medical_history_35` from my recipe due to zero variance of its values.
+
+In the end, I will remove `wt`, `family_hist_4`, and `step_impute_mean()` `employment_info_6`, `medical_history_1`, `employment_info_4`, and `medical_history_35`.
+
+```{r, results='hide'}
+# Start building a recipe for the risk_train data set
+risk_recipe <- recipe(response ~ ., data = risk_train) %>%
+  step_rm(c(wt,family_hist_4,medical_history_35)) %>%
+  
+  # Impute missing values in 'employment_info_6','employment_info_4', "medical_history_1"using mean imputation.
+  step_impute_mean(employment_info_6,employment_info_4,medical_history_1) %>% 
+  
+  # remove near zero variance predictors
+  step_nzv(all_predictors()) %>%
+  
+  # Convert all nominal predictors into dummy variables.
+  step_dummy(all_nominal_predictors())%>%
+  step_upsample(response,over_ratio = 1)
+head(prep(risk_recipe) %>% bake(risk_train))
+```
+
+To make the rest of work done efficiently, I decided to save `risk_fold`, `risk_recipe`, `risk_trian`, `risk_test` in the file named `"risk_analysis_data.RData"`
+
+```{r}
+save(risk_fold, risk_recipe, risk_train, risk_test, file = "risk_analysis_data.RData")
+```
+
+# 4. Model Fitting
+
+## 4.1 Classification Methods
+
+1.  **Logistic Regression:** Simple and effective, assuming a linear relationship between predictors and the binary outcome. Ideal for baseline modeling and interpretation.
+
+2.  **Elastic Net Regression:** A regularized regression method that linearly combines the L1 and L2 penalties of the Lasso and Ridge methods, suitable for dealing with multicollinearity and feature selection.
+
+3.  **Random Forest:** Highly suitable for your data with many predictors and a binary outcome. Excels in handling non-linear relationships and diverse data types.
+
+4.  **Gradient Boosting Trees:** Versatile for binary and multi-class outcomes, known for their predictive power and ability to handle various data complexities.
+
+5.  **Support Vector Machine:** Particularly effective for high-dimensional data. Great for both linear and non-linear decision boundaries, offering robustness in binary classification tasks.
+
+Given the high-dimensional and binary classification nature of risk_data, Gradient Boosting machine, SVM, and Random Forest are strong contenders. Their ability to handle non-linearity and complex patterns makes them particularly promising. However, the true effectiveness of each model can only be determined after evaluating their performance on your specific data set. This will provide clearer insights into whether a linear or non-linear model is more appropriate.
+
+### 4.1.1 AUC vs ROC_AUC metrics
+
+I'll be applying five different classification methods. For evaluating and comparing these models, I'll use the `ROC_AUC` metric. It's effective for comparing two models and assessing the same model across various thresholds. Although our data isn't extremely imbalanced, it shows some trends, and `ROC_AUC` is known to perform well with imbalanced data sets, unlike `AUC`. Therefore, I've chosen `ROC_AUC`as the primary metric for comparing models both within and between methods.
+
+### 4.1.2 **Logistic Regression (Simplified Procedure)**
+
+1.  **Setup**: Define the model as logistic regression, set the engine, and mode to `classification`.
+
+2.  **Workflow**: Create the workflow using the LOG model and risk_recipe.
+
+3.  **Model Fitting**: Fit the model to the resampling object (risk_fold)
+
+4.  **Evaluation and Saving**: Evaluate the model's performance and save the results to an RDA file.
+
+### 4.1.3 Common Steps for Elastic Net Regression, Random Forest, GBT, and SVM
+
+1.  **Setup**: Define the model, set the engine, and mode to 'classification'.
+
+2.  **Workflow**: Create a workflow, add the model, and integrate data preprocessing steps.
+
+3.  **Hyperparameter Tuning**: Set up a tuning grid specific to the model; conduct hyper-parameter tuning.
+
+4.  **Model Selection and Fitting**: Select the best model from the tuning grid, finalize the workflow, and fit it to (risk_fold). The best model would be the one have highest `ROC_AUC` value.
+
+5.  **Evaluation and Saving**: Evaluate the model's performance using metrics = ROC_AUC and save the results to an RDA file.
+
+Here is every methods' result RDA file.
+
+```{r}
+load("/Users/zejiegao/Desktop/PSTAT231/Predential life Insurance/Sandy's Final Project/risk_analysis_data.RData")
+load("/Users/zejiegao/Desktop/PSTAT231/Predential life Insurance/Sandy's Final Project/final_log_fit.rda")
+load("/Users/zejiegao/Desktop/PSTAT231/Predential life Insurance/Sandy's Final Project/final_enr_fit.rda")
+load("/Users/zejiegao/Desktop/PSTAT231/Predential life Insurance/Sandy's Final Project/final_rf_fit.rda")
+load("/Users/zejiegao/Desktop/PSTAT231/Predential life Insurance/Sandy's Final Project/final_bt_fit.rda")
+load("/Users/zejiegao/Desktop/PSTAT231/Predential life Insurance/Sandy's Final Project/svm_final_radial_fit.rda")
+```
+
+# 5. Model Performance and Selection
+
+After fitting all models and identifying the best ones, I'm set to analyze their performance, focusing on Gradient Boosting Tree, SVM, and Random Forest due to their suitability for high-dimensional, binary data in risk_data. I'll begin by visually presenting `ROC_AUC` for these methods, then compare them on the training set. Finally, I'll apply the selected models to the test data (risk_test) to evaluate their true performance. This approach is crucial as models typically perform well on training data, often showing high `ROC_AUC`. Testing them on new data will reveal their actual effectiveness.
+
+## 5.1 Random Forest
+
+In our journey through Random Forest modeling, we've seen firsthand the impact of our chosen hyper-parameters on prediction accuracy. The number of trees`trees`, the minimum size of the tree nodes`min_n`, and the number of variables `mtry` we consider at each decision point---these elements are key to our model's success.
+
+More trees in the forest typically lead to better predictions, as indicated by higher ROC AUC values on our charts. Likewise, giving each node a bigger pool of cases before splitting helps improve the model's accuracy. An optimal model may be roughly 10 trees, where each node begins with a minimum of 10 instances.
+
+```{r}
+autoplot(tune_rf_fit) + theme_minimal()
+```
+
+## 5.2 Gradient Boosting Machines
+
+Now let's look at Gradient Boosting Machines, which are really good at figuring out hard problems. We're focusing on something called the learning rate, which is like telling the model how fast to learn. If the learning rate is too slow, our model takes a really long time to get better. But if we set it just right, our model learns quickly and does a great job.
+
+The picture tells us about trying different learning speeds and how many trees the model uses to learn. If the learning speed is too slow, the model hardly learns anything. But if we set the learning speed to a good level, our model starts to learn better and faster. It's like each tree gives it a new idea, and the more trees it has, the more it knows. We want to find the best setup where our model can make really smart choices but not get mixed up. And it seems like setting the learning speed to about 0.1 and using 700 trees is the best way to do that.
+
+```{r}
+autoplot(tune_bt_fit) + theme_minimal()
+
+```
+
+## 5.3 Support Vector Machine (SVM)
+
+5.3 Support Vector Machine (SVM)
+
+Moving on to Support Vector Machines, the chart shows us how well the SVM does this job as we change the cost value. The cost helps decide if we want our model to be really strict about getting the training data right, which might make it less flexible, or if we want it to be okay with some mistakes but work better on new data we give it later.
+
+When we look at the chart, we see that when we turn up the cost, the model gets better at predicting up to a certain point. But if the cost gets too high, things start to go down, and the model doesn't do as well. It looks like the best setting for the cost is around 2 because that's where the model does its best job without getting too complicated.
+
+```{r}
+svm_rbf_res %>% autoplot()
+```
+
+## 5.4 Training Set ROC_AUC Performance Across Models
+
+To comprehensively represent this data, I create a tibble showcasing the `ROC_AUC` values for the best models from each method, providing a clear comparison of their performance. Attention, this is from risk_train data.
+
+```{r, warning =FALSE}
+roc_auc_log <- augment(final_log_fit, new_data = risk_train) %>% roc_auc(truth = response, .pred_Low)
+
+roc_auc_rf <- augment(final_rf_fit, new_data = risk_train) %>% roc_auc(truth = response, .pred_Low) 
+
+roc_auc_bt <- augment(final_bt_fit, new_data = risk_train) %>% roc_auc(truth = response, .pred_Low) 
+
+roc_auc_svm <- augment(svm_final_radial_fit, new_data = risk_train) %>% roc_auc(truth = response, .pred_Low) 
+
+roc_auc_enr <- augment(en_final_risk, new_data = risk_train) %>% roc_auc(truth = response, .pred_Low) 
+
+# Create a tibble with model names and their corresponding ROC AUC estimates
+roc_auc_tibble <- tibble(
+  Model = c("Logistic Regression", "Elastic Net regression", "Random Forest", "Boosted Trees", "SVM"),
+  ROC_AUC_train = c(roc_auc_log$.estimate, roc_auc_enr$.estimate, roc_auc_rf$.estimate, roc_auc_bt$.estimate, roc_auc_svm$.estimate)
+)
+
+# Arrange the tibble in descending order based on ROC AUC
+roc_auc_tibble_ordered <- roc_auc_tibble %>%
+  arrange(desc(ROC_AUC_train))
+
+print(roc_auc_tibble_ordered)
+```
+
+In assessing the capabilities of various models using the risk_train data, I've organized a table to display the ROC_AUC values. The Random Forest model stands out, securing the top position with the highest ROC_AUC, reflecting its excellent predictive prowess. Following it are the Boosted Trees, displaying strong performance as well. Next in line is the SVM model. Consistent with previous observations, these three models prove to be particularly adept at navigating the complexities of high-dimensional binary classification.
+
+## 5.5 Results From Our Best Models
+
+### NO.1 Random Forest Model
+
+```{r, warning=FALSE}
+show_best(tune_rf_fit, n = 1)
+```
+
+Preprocessor1 Model 124 is our best random forest model !
+
+When evaluating our model's effectiveness on new data, it's crucial to look beyond its success on the training set to how it performs when confronted with unseen cases. The model's ability to generalize is captured in the ROC_AUC score on the risk_test sample, which sits at 0.780756. This is a commendable score, particularly as it falls between 70% and 80%.
+
+The ROC curve, while not perfect---its highest point doesn't quite reach the top left corner---still demonstrates a quality level of classification. It indicates that our model is discriminating between the classes effectively.
+
+Further insights are gleaned from the confusion matrix. Here, the accuracy is derived by the sum of correct predictions (where prediction matches the truth) divided by the total number of cases tested. The model achieves approximately 73% accuracy, which reinforces the model's solid performance. Notably, the model is particularly adept at identifying high-risk levels, which aligns with the composition of the training data that had a higher representation of high-risk cases.
+
+```{r}
+roc_auc_rf_risk <- augment(final_rf_fit, new_data = risk_test) %>% 
+                   roc_auc(truth = response, .pred_Low) %>%
+                   select(.estimate)
+
+roc_auc_rf_risk
+
+risk_rf_roc_curve <- augment(final_rf_fit, new_data = risk_test, type = 'prob') %>%
+  roc_curve(response, .pred_Low) %>%
+  autoplot()
+
+risk_rf_roc_curve
+# Generating class predictions
+final_rf_predictions <- augment(final_rf_fit, new_data = risk_test, type = 'class')
+
+# Creating a confusion matrix
+risk_conf_matrix <- conf_mat(final_rf_predictions, truth = response, estimate = .pred_class) %>%
+  autoplot(type = "heatmap")
+
+risk_conf_matrix
+
+```
+
+### NO.2 Gradient Boosting Tree Model
+
+```{r, warning=FALSE}
+show_best(tune_bt_fit, n = 1)
+```
+
+Preprocessor1 Model 50 is the best!
+
+In addition to exploring the Random Forest model, I have applied a Gradient Boosting Tree (GBT) model to my final test, intrigued by its ability to highlight the influence of each predictor on the outcome. The performance on the test data is promising---the GBT model achieves a ROC_AUC score of 0.7947596, which is even higher than that of the Random Forest. This could be attributed to GBT's proficiency in handling large data sets and its focus on optimizing for high-value predictions, potentially mitigating issues that Random Forest models may encounter with larger amounts of data.
+
+The GBT model's ROC curve and confusion matrix affirm its effectiveness in distinguishing between high and low risk categories. By using the vip() function, BMI stands out as the most influential predictor. This is just like my expectation as BMI provides insights into a person's health, implying potential risks such as heart conditions or diabetes. Other important factors include product_info_4 and employment_info_1, indicating their relevance in risk assessment. Contrary to expectations, insurance age (ins_age) did not carry as much influence, which was a surprising find. ]=
+
+The accuracy, based on the confusion matrix, is calculated by adding the number of correct predictions for both high risk (159) and low risk (53) and dividing by the total number of cases, up to 75%.
+
+```{r, warning=FALSE}
+roc_auc_bt_risk <- augment(final_bt_fit, new_data = risk_test) %>% 
+                   roc_auc(truth = response, .pred_Low) %>%
+                   select(.estimate)
+
+roc_auc_bt_risk 
+
+risk_svm_roc_curve <- augment(final_bt_fit, new_data = risk_test, type = 'prob') %>%
+  roc_curve(response, .pred_Low) %>%
+  autoplot()
+
+risk_svm_roc_curve
+
+# Generating class predictions
+final_bt_predictions <- augment(final_bt_fit, new_data = risk_test, type = 'class')
+
+# Creating a confusion matrix
+risk_conf_matrix <- conf_mat(final_bt_predictions, truth = response, estimate = .pred_class) %>%
+  autoplot(type = "heatmap")
+
+risk_conf_matrix
+
+final_bt_fit %>% extract_fit_parsnip() %>% 
+  vip() +
+  theme_minimal()
+
+```
+
+### Preprocessor1 Model 50
+
+Taking into account that the GBT model outperforms RF in terms of both ROC_AUC and accuracy, I conclude that Preprocessor1 Model 50 is my final selection.
+
+# 6. Conclusion
+
+Throughout this project, the primary objective was to harness machine learning techniques to predict insurance risk levels using normalized personal and health data. After a thorough exploration of various predictive models, the Gradient Boosting Tree (GBT) model, labeled as Preprocessor1 Model 50, stood out with superior performance, achieving a ROC_AUC score of 0.7947596 and an accuracy of approximately 75% on the risk_test sample. This model's success is attributed to its capacity to handle the high-dimensional nature of the data set and to effectively identify the most influential predictors, such as BMI, which is a crucial indicator of health-related risks.
+
+The journey began with a comprehensive exploratory data analysis, followed by data preprocessing, which included addressing missing values and refining the data set for optimal modeling. The correlation analysis, as part of the EDA, guided the selection of the most relevant variables and shaped the subsequent data preparation steps. The models were then evaluated, with the GBT model ultimately proving to be the most effective in terms of both prediction accuracy and its ability to generalize to new data.
+
+I'm really thrilled with how this project turned out, especially getting to dive into real-world problems with machine learning. Still, I learned heaps about each model -- their strengths, their weaknesses, all of it.
+
+I would also like to thank Dr. Katie Coburn for her invaluable guidance and support throughout the writing of this project.

@@ -1,0 +1,66 @@
+---
+title: "Supoort Vector Machines analysis"
+output: html_document
+date: "2023-12-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# install.packages("kernlab")
+library(kernlab)
+library(tidyverse)
+library(visdat)
+library(ggplot2)
+library(tidymodels)
+library(corrplot)
+library(ggthemes)
+library(janitor)
+library(naniar)
+library(rpart)
+library(rpart.plot)
+library(mice)
+library(tidymodels)
+library(themis)
+library(naniar)
+# install.packages("xgboost")
+library(xgboost)
+# install.packages("ranger")
+library(ranger)
+library(discrim)
+library(parsnip)
+tidymodels_prefer()
+load("/Users/zejiegao/Desktop/PSTAT231/Predential life Insurance/Sandy's Final Project/risk_analysis_data.RData")
+```
+
+
+```{r}
+svm_rbf_spec <- svm_rbf(cost = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("kernlab")
+
+svm_rbf_wkflow <- workflow() %>% 
+  add_recipe(risk_recipe) %>% 
+  add_model(svm_rbf_spec)
+
+svm_rbf_grid <- grid_regular(cost(), levels = 5)
+
+svm_rbf_res <- tune_grid(svm_rbf_wkflow, 
+                            risk_fold, svm_rbf_grid)
+
+svm_rbf_res %>% autoplot()
+```
+```{r}
+svm_best_radial <- select_best(svm_rbf_res)
+svm_best_radial
+svm_final_radial_fit <- finalize_workflow(svm_rbf_wkflow, svm_best_radial) %>% 
+  fit(risk_train)
+risk_svm_roc_curve = augment(svm_final_radial_fit, risk_test) %>% 
+  select(response, starts_with(".pred_Low")) 
+```
+```{r}
+save(svm_rbf_res, svm_final_radial_fit, file = "svm_final_radial_fit.rda")
+```
+
