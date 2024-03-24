@@ -1,0 +1,305 @@
+---
+title: "Homework 2"
+author: "PSTAT 131/231"
+output:
+    html_document:
+      toc: true
+      toc_float: true
+      code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE,
+                      warning = FALSE)
+```
+
+## Linear Regression and KNN
+
+For this assignment, we will be working with a data set from the UCI (University of California, Irvine) Machine Learning repository ([see website here](http://archive.ics.uci.edu/ml/datasets/Abalone)). The full data set consists of $4,177$ observations of abalone in Tasmania. (Fun fact: [Tasmania](https://en.wikipedia.org/wiki/Tasmania "Tasmania") supplies about $25\%$ of the yearly world abalone harvest.)
+
+![*Fig 1. Inside of an abalone shell.*](images/17612037-abalone-shell-inside.jpg){width="309"}
+
+The age of an abalone is typically determined by cutting the shell open and counting the number of rings with a microscope. The purpose of this data set is to determine whether abalone age (**number of rings + 1.5**) can be accurately predicted using other, easier-to-obtain information about the abalone.
+
+The full abalone data set is located in the `\data` subdirectory. Read it into *R* using `read_csv()`. Take a moment to read through the codebook (`abalone_codebook.txt`) and familiarize yourself with the variable definitions.
+
+Make sure you load the `tidyverse` and `tidymodels`!
+
+### Question 1
+
+Your goal is to predict abalone age, which is calculated as the number of rings plus 1.5. Notice there currently is no `age` variable in the data set. Add `age` to the data set.
+
+Assess and describe the distribution of `age`.
+
+```{r}
+library(visdat)
+library(dplyr)
+library(tidyverse)
+library(tidymodels)
+library(ggplot2)
+library(corrplot)
+library(ggthemes)
+library(recipes)
+tidymodels_prefer()
+abalone <- read_csv("abalone.csv")
+```
+
+```{r}
+library(naniar)
+vis_miss(abalone)
+```
+
+```{r}
+abalone <- mutate(abalone, age = abalone$rings + 1.5)
+summary(abalone$age)
+abalone %>%
+  ggplot(aes(x = age)) +
+  geom_histogram()
+```
+
+The histogram showcases the age for abalone, illustrating a single modal distribution with notable peaks around 10. The frequency of age is really similar with normal distribution but with a subtle rightward skew. This suggesting that the majority of age from the sample fall into the range between 9.5 and 12.5.
+
+### Question 2
+
+Split the abalone data into a training set and a testing set. Use stratified sampling. You should decide on appropriate percentages for splitting the data.
+
+*Remember that you'll need to set a seed at the beginning of the document to reproduce your results.*
+
+```{r}
+set.seed(3435)
+
+abalone_split <- abalone %>%
+  initial_split(strata = age, prop = 0.7)
+abalone_train <- training(abalone_split)
+abalone_test <- testing(abalone_split)
+abalone_train
+```
+
+### Question 3
+
+Using the **training** data, create a recipe predicting the outcome variable, `age`, with all other predictor variables. Note that you **should not** include `rings` to predict `age`. *Explain why you shouldn't use `rings` to predict `age`.*
+
+Explanation: we could directly compute age if we have rings or to say rings is another version of age, and it will be redundant for our prediction.
+
+Steps for your recipe:
+
+1.  dummy code any categorical predictors
+
+2.  create interactions between
+
+    -   `type` and `shucked_weight`,
+    -   `longest_shell` and `diameter`,
+    -   `shucked_weight` and `shell_weight`
+
+3.  center all predictors, and
+
+4.  scale all predictors.
+
+You'll need to investigate the `tidymodels` documentation to find the appropriate step functions to use.
+
+```{r}
+abalone_recipe <- recipe(age ~ ., data = abalone_train) %>%
+  step_rm(rings) %>%
+  
+  # 1. Dummy code any categorical predictors
+  step_dummy(all_nominal_predictors()) %>%
+
+  # 2. Create interactions between the dummy variables and shucked_weight, 
+  step_interact(term = ~ starts_with("type"):shucked_weight) %>%
+  # other interactions as well
+   step_interact(~ longest_shell:diameter +
+                shucked_weight:shell_weight) %>%
+  # Center all predictors and Scale all predictors
+  step_normalize(all_predictors())
+```
+
+### Question 4
+
+Create and store a linear regression object using the `"lm"` engine.
+
+```{r}
+# Setting up "lm" engine
+lm_model <- linear_reg() %>% 
+  set_engine("lm")
+```
+
+### Question 5
+
+Create and store a KNN object using the `"kknn"` engine. Specify `k = 7`.
+
+```{r}
+# install.packages("kknn")
+library(kknn)
+```
+
+```{r}
+knn_model <- nearest_neighbor(neighbors = 7) %>% 
+  set_engine("kknn") %>% 
+  set_mode("regression")
+```
+
+### Question 6
+
+Now, for each of these models (linear regression and KNN):
+
+1.  set up an empty workflow,
+2.  add the model, and
+3.  add the recipe that you created in Question 3.
+
+Note that you should be setting up two separate workflows.
+
+Fit both models to the training set.
+
+```{r}
+# LM workflow
+lm_wflow <- workflow() %>% 
+  add_recipe(abalone_recipe) %>% 
+  add_model(lm_model) 
+
+# Fit the LM to the training set
+lm_fit <- fit(lm_wflow, data = abalone_train)
+
+# KNN Workflow
+knn_wflow <- workflow() %>% 
+  add_model(knn_model) %>% 
+  add_recipe(abalone_recipe)
+# Fit the KNN Model to the Training Set
+knn_fit <- fit(knn_wflow, data = abalone_train)
+```
+
+```{r}
+lm_fit
+```
+
+### Question 7
+
+Use your linear regression `fit()` object to predict the age of a hypothetical female abalone with longest_shell = 0.50, diameter = 0.10, height = 0.30, whole_weight = 4, shucked_weight = 1, viscera_weight = 2, and shell_weight = 1.
+
+```{r}
+# Create a new data frame for the hypothetical female abalone
+new_data <- data.frame(
+  type = "F",
+  longest_shell = 0.50,
+  diameter = 0.10,
+  height = 0.30,
+  whole_weight = 4,
+  shucked_weight = 1,
+  viscera_weight = 2,
+  shell_weight = 1,
+  rings = 0
+)
+
+# Predict the age using the lm_fit object
+predicted_age <- predict(lm_fit, new_data = new_data); predicted_age
+```
+
+### Question 8
+
+Now you want to assess your models' performance. To do this, use the `yardstick` package:
+
+1.  Create a metric set that includes *R^2^*, RMSE (root mean squared error), and MAE (mean absolute error).
+2.  Use `augment()` to create a tibble of your model's predicted values from the **testing data** along with the actual observed ages (these are needed to assess your model's performance).
+3.  Finally, apply your metric set to the tibble, report the results, and interpret the *R\^2* value.
+
+Repeat these steps once for the linear regression model and for the KNN model.
+
+```{r}
+library(yardstick)
+
+# Create metric set
+metrics <- metric_set(rsq, rmse, mae)
+```
+
+```{r}
+# Obtain predicted values on both LM and KNN models
+lm_results <- augment(lm_fit, new_data = abalone_test)
+knn_results <- augment(knn_fit, new_data = abalone_test)
+```
+
+```{r}
+# Access LM performance
+lm_metrics <- lm_results %>%
+  metrics(truth = age, estimate = .pred)
+
+print(lm_metrics)
+```
+
+rsq = 0.549 means that approximately 54.9% of the variance in the observed ages of the abalones in your testing dataset is explained by the linear regression model.
+
+```{r}
+# Access FNN performance
+knn_metrics <- knn_results %>%
+  metrics(truth = age, estimate = .pred)
+
+print(knn_metrics)
+```
+
+This req value means that approximately 48.3% of the variance in the observed ages of the abalones in your testing dataset is explained by the KNN model.
+
+### Question 9
+
+Which model performed better on the testing data? Explain why you think this might be. Are you surprised by any of your results? Why or why not?
+
+The linear regression model performed better on the testing data based on a higher $R^2$ (57.96% vs. 48.32%) and lower RMSE and MAE values compared to the KNN model. This suggests that the relationships in the data might be more linear, making linear regression a better fit. I am not surprised by the result that lm model performace bettern than KNN model becuase i do think there is an linear realtionship between age and other inputs.
+
+```{r}
+# install.packages("palmerpenguins")
+penguins <- as_tibble(palmerpenguins::penguins)
+set.seed(3435)
+penguin_split <- initial_split(penguins, strata = "species")
+
+penguin_train <- training(penguin_split)
+penguin_test <- testing(penguin_split)
+penguin_train
+penguin_folds <- vfold_cv(penguin_train, v = 5, strata = "species")
+```
+
+### Required for 231 Students
+
+In lecture, we presented the general bias-variance tradeoff, which takes the form:
+
+$$
+E[(y_0 - \hat{f}(x_0))^2]=Var(\hat{f}(x_0))+[Bias(\hat{f}(x_0))]^2+Var(\epsilon)
+$$
+
+where the underlying model $Y=f(X)+\epsilon$ satisfies the following:
+
+-   $\epsilon$ is a zero-mean random noise term and $X$ is non-random (all randomness in $Y$ comes from $\epsilon$);
+-   $(x_0, y_0)$ represents a test observation, independent of the training set, drawn from the same model;
+-   $\hat{f}(.)$ is the estimate of $f$ obtained from the training set.
+
+#### Question 10
+
+Which term(s) in the bias-variance tradeoff above represent the reducible error? Which term(s) represent the irreducible error?
+
+There are three terms in this expression. The last term $Var(\epsilon)$ is the irreducible error, the variance of the new test target---and is beyond our control, even if we know the true ${f}(x_0)$, (ESL,page 37).
+
+The first and second terms are under our control, and make up the mean squared error of $\hat{f}(x_0)$ in estimating ${f}(x_0)$, which is broken down into a bias component and a variance component. The bias term is the squared difference between the true mean ${f}(x_0)$ and the expected value of the estimate where the expectation averages the randomness in the training data. The variance term is simply the variance of an average here.
+
+#### Question 11
+
+Using the bias-variance tradeoff above, demonstrate that the expected test error is always at least as large as the irreducible error.
+
+Both Variance and Biased square are non-negative terms in this situation. Let's consider best case scenario that both reducible error is zero, then the total expected test error will be at least equal to irreducible error which is $Var(\epsilon)$.
+
+#### Question 12
+
+Prove the bias-variance tradeoff. $$
+E[(y_0 - \hat{f}(x_0))^2]=E[(y_0 - \hat{f}(x_0))*(y_0 - \hat{f}(x_0))]
+\\ =E[{f}(x_0) + \epsilon  - \hat{f}(x_0))*({f}(x_0) + \epsilon - \hat{f}(x_0))]
+\\ =E[({f}(x_0) - \hat{f}(x_0))^2 + 2*({f}(x_0) - \hat{f}(x_0))*\epsilon + \epsilon^2]
+\\ = E[({f}(x_0) - \hat{f}(x_0))^2] + E[2*({f}(x_0) - \hat{f}(x_0))*\epsilon] + E[\epsilon^2]
+\\ = E[({f}(x_0) - \hat{f}(x_0))^2] + 0 + E[\epsilon^2]
+\\ = E[({f}(x_0) - \hat{f}(x_0))^2] + Var[\epsilon] + E[\epsilon]^2
+\\ = E[{f}(x_0)^2 - 2*\hat{f}(x_0)*{f}(x_0) + \hat{f}(x_0)^2)] + Var[\epsilon] + 0
+\\ = {f}(x_0)^2 - E[2*\hat{f}(x_0)*{f}(x_0)]+ E[\hat{f}(x_0)^2)] + Var[\epsilon] 
+\\ = {f}(x_0)^2 - E[2*\hat{f}(x_0)*{f}(x_0)] + E[\hat{f}(x_0)^2)] + E[\hat{f}(x_0)]^2 - E[\hat{f}(x_0)]^2+ Var[\epsilon] 
+\\ = ( E[\hat{f}(x_0)^2)]- E[\hat{f}(x_0)]^2)+ {f}(x_0)^2- 2*E[\hat{f}(x_0)]*{f}(x_0)+ E[\hat{f}(x_0)]^2 + Var[\epsilon]
+\\ = ( E[\hat{f}(x_0)^2)]- E[\hat{f}(x_0)]^2)+(E[\hat{f}(x_0]-f(x_0))^2 + Var[\epsilon]
+\\ = Var(\hat{f}(x_0))+[Bias(\hat{f}(x_0))]^2+Var(\epsilon)
+$$
+
+Hints:
+
+-   use the definition of $Bias(\hat{f}(x_0))=E[\hat{f}(x_0)]-f(x_0)$;
+-   reorganize terms in the expected test error by adding and subtracting $E[\hat{f}(x_0)]$

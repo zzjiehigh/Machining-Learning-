@@ -1,0 +1,362 @@
+---
+title: "Homework 3"
+author: "PSTAT 131/231"
+output:
+    html_document:
+      toc: true
+      toc_float: true
+      code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE,
+                      warning = FALSE)
+```
+
+## Binary Classification
+
+For this assignment, we will be working with part of a [Kaggle data set](https://www.kaggle.com/c/titanic/overview) that was the subject of a machine learning competition and is often used for practicing ML models. The goal is classification; specifically, to predict which passengers would survive the [Titanic shipwreck](https://en.wikipedia.org/wiki/Titanic).
+
+![Fig. 1: RMS Titanic departing Southampton on April 10, 1912.](images/RMS_Titanic.jpg){width="363"}
+
+Load the data from `data/titanic.csv` into *R* and familiarize yourself with the variables it contains using the codebook (`data/titanic_codebook.txt`).
+
+Notice that `survived` and `pclass` should be changed to factors. When changing `survived` to a factor, you may want to reorder the factor so that *"Yes"* is the first level.
+
+Make sure you load the `tidyverse` and `tidymodels`!
+```{r}
+library(tidyverse)
+library(tidymodels)
+```
+
+```{r}
+# Load the dataset
+titanic <- read.csv('titanic.csv')%>%
+  mutate(survived = factor(survived, 
+                           levels = c("Yes", "No")),
+         pclass = factor(pclass))
+
+head(titanic)
+```         
+
+*Remember that you'll need to set a seed at the beginning of the document to reproduce your results.*
+
+### Question 1
+
+Split the data, stratifying on the outcome variable, `survived.` You should choose the proportions to split the data into. Verify that the training and testing data sets have the appropriate number of observations. Take a look at the training data and note any potential issues, such as missing data.
+
+Why is it a good idea to use stratified sampling for this data?
+```{r}
+set.seed(1014)
+
+titanic_split <- titanic %>%
+  initial_split(strata = survived, prop = 0.7)
+titanic_train <- training(titanic_split)
+titanic_test <- testing(titanic_split)
+```
+
+### Question 2
+
+Using the **training** data set, explore/describe the distribution of the outcome variable `survived`.
+
+Create a [percent stacked bar chart](https://r-graph-gallery.com/48-grouped-barplot-with-ggplot2) (recommend using `ggplot`) with `survived` on the *x*-axis and `fill = sex`. Do you think `sex` will be a good predictor of the outcome?
+
+Create one more percent stacked bar chart of `survived`, this time with `fill = pclass`. Do you think passenger class will be a good predictor of the outcome?
+
+Why do you think it might be more useful to use a [percent stacked bar chart](https://r-graph-gallery.com/48-grouped-barplot-with-ggplot2) as opposed to a traditional stacked bar chart?
+```{r}
+library(ggplot2)
+
+# Percent stacked bar chart with 'survived' on the x-axis and fill with 'sex'
+ggplot(titanic_train, aes(x = survived, fill = sex)) +
+  geom_bar(position = 'fill') +
+  ylab("Percentage") +
+  scale_y_continuous(labels = scales::percent)
+
+# Percent stacked bar chart with 'survived' on the x-axis and fill with 'pclass'
+ggplot(titanic_train, aes(x = survived, fill = pclass)) +
+  geom_bar(position = 'fill') +
+  ylab("Percentage") +
+  scale_y_continuous(labels = scales::percent)
+```
+Yes pclass will be a good indicator of a outcome, since it shows some relationship between the pclass level and the percentage of survived or not.
+
+In the context of the Titanic dataset, using a percent stacked bar chart allows you to immediately see what fraction of each class (1st, 2nd, and 3rd) survived and perished, without being influenced by the number of passengers in each class.
+### Question 3
+
+Using the **training** data set, create a correlation matrix of all continuous variables. Visualize the matrix and describe any patterns you see. Are any predictors correlated with each other? Which ones, and in which direction?
+```{r}
+library(corrplot)
+# Visualize the correlation matrix
+Matrix <- cor(titanic[,sapply(titanic, is.numeric)])
+corrplot(Matrix, method = "number", type="lower")
+```
+From these observations, you can infer that displ and cyl are strongly correlated with each other and with cty and hwy in a negative direction. Also, cty and hwy are highly correlated with each other in a positive direction. These strong correlations might indicate multicollinearity if these variables are used together in a regression model, which could be problematic because it can distort the importance of individual predictors.
+### Question 4
+
+Using the **training** data, create a recipe predicting the outcome variable `survived`. Include the following predictors: ticket class, sex, age, number of siblings or spouses aboard, number of parents or children aboard, and passenger fare.
+
+Recall that there were missing values for `age`. To deal with this, add an imputation step using `step_impute_linear()`. Next, use `step_dummy()` to **dummy** encode categorical predictors. Finally, include interactions between:
+
+-   Sex and passenger fare, and
+-   Age and passenger fare.
+
+You'll need to investigate the `tidymodels` documentation to find the appropriate step functions to use.
+```{r}
+library(recipes)
+
+# Define the recipe
+titanic_recipe <- recipe(survived ~ pclass + sex + age + sib_sp + parch + fare, data = titanic_train) %>%
+  # Impute missing values for 'age' using linear imputation
+  step_impute_linear(age, impute_with = imp_vars(sib_sp)) %>%
+  # Dummy code any categorical predictors
+  step_dummy(all_nominal_predictors()) %>%
+  # 2. Create interactions between the dummy variables and shucked_weight, 
+  step_interact(term = ~ starts_with("sex"):fare) %>%
+  # other interactions as well
+  step_interact(~ age:fare)
+```
+
+### Question 5
+
+Specify a **logistic regression** model for classification using the `"glm"` engine. Then create a workflow. Add your model and the appropriate recipe. Finally, use `fit()` to apply your workflow to the **training** data.
+
+***Hint: Make sure to store the results of `fit()`. You'll need them later on.***
+```{r}
+# Step 1: Specify the glm Engine
+log_reg <- logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+
+# Step 2: Create the workflow using the LOG model and your recipe
+log_wkflow <- workflow() %>% 
+  add_model(log_reg) %>% 
+  add_recipe(titanic_recipe)
+
+# Step 3: Fit the LOG model to the training data
+log_fit <- fit(log_wkflow, titanic_train)
+```
+
+### Question 6
+
+**Repeat Question 5**, but this time specify a linear discriminant analysis model for classification using the `"MASS"` engine.
+```{r}
+# Install the discrim package if it's not already installed
+# install.packages("discrim")
+
+# Load the discrim package
+library(discrim)
+# Step 1: Specify the linear discriminant analysis model
+lda_model <- discrim_linear() %>%
+  set_engine("MASS") %>%
+  set_mode("classification")
+
+# Step 2: Create the workflow using the LDA model and your recipe
+lda_workflow <- workflow() %>%
+  add_model(lda_model) %>%
+  add_recipe(titanic_recipe)
+
+# Step 3: Fit the LDA model to the training data
+lda_fit <- fit(lda_workflow, data = titanic_train)
+```
+
+### Question 7
+
+**Repeat Question 5**, but this time specify a quadratic discriminant analysis model for classification using the `"MASS"` engine.
+```{r}
+# Step 1: Specify the linear discriminant analysis model
+qda_model <- discrim_quad() %>%
+  set_engine("MASS") %>%
+  set_mode("classification")
+
+# Step 2: Create the workflow using the LDA model and your recipe
+qda_workflow <- workflow() %>%
+  add_model(qda_model) %>%
+  add_recipe(titanic_recipe)
+
+# Step 3: Fit the LDA model to the training data
+qda_fit <- fit(qda_workflow, data = titanic_train)
+```
+
+### Question 8
+
+**Repeat Question 5**, but this time specify a *k*-nearest neighbors model for classification using the `"kknn"` engine. Choose a value for *k* to try.
+```{r}
+# install.packages("kknn")
+library(kknn)
+```
+
+```{r}
+# Step 1: Specify the *k*-nearest neighbors model for classification
+knn_model <- nearest_neighbor(neighbors = 7) %>% 
+  set_engine("kknn") %>% 
+  set_mode("classification")
+
+# Step 2: Create the workflow using the knn model and your recipe
+knn_wflow <- workflow() %>% 
+  add_model(knn_model) %>% 
+  add_recipe(titanic_recipe)
+
+# Step 3: Fit the knn model to the training data
+knn_fit <- fit(knn_wflow, data = titanic_train)
+```
+
+### Question 9
+
+Now you've fit four different models to your training data.
+
+Use `predict()` and `bind_cols()` to generate predictions using each of these 4 models and your **training** data. Then use the metric of **area under the ROC curve** to assess the performance of each of the four models.
+```{r}
+# install.packages("pROC")
+library(pROC)
+# install.packages("Metrics")
+```
+
+```{r}
+# Calculate ROC AUC for Logistic Regression
+log_probs <- predict(log_fit, titanic_train, type = "prob")
+log_auc <- bind_cols(titanic_train, log_probs) %>%
+  roc_auc(survived, .pred_Yes)
+
+# Calculate ROC AUC for LDA
+lda_probs <- predict(lda_fit, titanic_train, type = "prob")
+lda_auc <- bind_cols(titanic_train, lda_probs) %>%
+  roc_auc(survived, .pred_Yes)
+
+# Calculate ROC AUC for QDA
+qda_probs <- predict(qda_fit, titanic_train, type = "prob")
+qda_auc <- bind_cols(titanic_train, qda_probs) %>%
+  roc_auc(survived, .pred_Yes)
+
+# Calculate ROC AUC for KNN
+knn_probs <- predict(knn_fit, titanic_train, type = "prob")
+knn_auc <- bind_cols(titanic_train, knn_probs) %>%
+  roc_auc(survived, .pred_Yes)
+
+# Store the AUC results 
+auc_list <- bind_rows(log_auc, lda_auc, qda_auc, knn_auc) %>%
+  tibble()%>%
+  mutate(model = c("Log","LDA","QDA","Knn"))%>%
+  select(model,.estimate)%>%
+  arrange(.estimate)
+
+auc_list
+```
+
+
+The AUC scores for the four models suggest that the K-Nearest Neighbors model (AUC of 0.978) performs significantly better at distinguishing between survivors and non-survivors on the training data compared to the other models. Logistic Regression, Linear Discriminant Analysis, and Quadratic Discriminant Analysis have similar AUC scores (around 0.86), indicating good predictive performance. 
+
+### Question 10
+
+Fit all four models to your **testing** data and report the AUC of each model on the **testing** data. Which model achieved the highest AUC on the **testing** data?
+
+Using your top-performing model, create a confusion matrix and visualize it. Create a plot of its ROC curve.
+
+How did your best model perform? Compare its **training** and **testing** AUC values. If the values differ, why do you think this is so?
+```{r}
+log_test <- fit(log_fit, titanic_test)
+lda_test <- fit(lda_fit, titanic_test)
+qda_test <- fit(qda_fit, titanic_test)
+knn_test <- fit(knn_fit, titanic_test)
+# AUC
+log_auc_test <- augment(log_test, titanic_test) %>%
+  roc_auc(survived, .pred_Yes)
+
+lda_auc_test <- augment(lda_test, titanic_test) %>%
+  roc_auc(survived, .pred_Yes)
+
+qda_auc_test <- augment(qda_test, titanic_test) %>%
+  roc_auc(survived, .pred_Yes)
+
+knn_auc_test <- augment(knn_test, titanic_test) %>%
+  roc_auc(survived, .pred_Yes)
+
+# Store the AUC results 
+auc_list <- bind_rows(log_auc_test, lda_auc_test, qda_auc_test, knn_auc_test) %>%
+  tibble()%>%
+  mutate(model = c("Log","LDA","QDA","Knn"))%>%
+  select(model,.estimate)%>%
+  arrange(.estimate)
+
+auc_list
+```
+
+```{r}
+# out top performance model is knn-moodel
+augment(knn_test, titanic_test)%>%
+conf_mat(truth = survived, estimate = .pred_class)%>%
+autoplot(type = "heatmap")
+```
+
+```{r}
+library(yardstick)
+library(pROC)
+
+# Predict probabilities
+knn_probs <- predict(knn_fit, titanic_test, type = "prob")
+results <- bind_cols(knn_probs, titanic_test %>% select(survived))
+
+# Calculate the ROC curve
+roc_obj <- roc(response = results$survived, predictor = results$.pred_Yes)
+
+# Plot the ROC curve
+plot(roc_obj, main="ROC Curve for KNN Model", col="#1c61b6", lwd=2)
+```
+
+Based on the AUC values, the K-Nearest Neighbors (KNN) model performed the best on both the training and testing datasets, with AUC values of 0.978 and 0.98, respectively. A common reason for higher training performance is overfitting, where the model learns the training data too well, including its noise and outliers, which doesn't generalize to new, unseen data. However, the AUO here does not show significant difference between testing and training, representing lower outfitting over here. 
+
+### Required for 231 Students
+
+In a binary classification problem, let $p$ represent the probability of class label $1$, which implies that $1 - p$ represents the probability of class label $0$. The *logistic function* (also called the "inverse logit") is the cumulative distribution function of the logistic distribution, which maps a real number *z* to the open interval $(0, 1)$.
+
+### Question 11
+
+Given that:
+
+$$
+p(z)=\frac{e^z}{1+e^z}
+$$
+
+Prove that the inverse of a logistic function is indeed the *logit* function:
+
+$$
+z(p)=ln\left(\frac{p}{1-p}\right)
+$$
+
+$$
+p = \frac{e^z}{1+e^z}\\
+p(1+e^z) = e^z\\
+p+pe^z = e^z\\
+e^z(p-1)=-p\\
+e^z=\frac{-p}{p-1}\\
+ln(e^z)=ln(\frac{-p}{p-1})\\
+z = ln(\frac{-p}{p-1}), since (p-1) < 0\\
+z = ln(\frac{p}{1-p})\\
+Hence, z(p)=ln\left(\frac{p}{1-p}\right)
+$$
+
+### Question 12
+
+Assume that $z = \beta_0 + \beta_{1}x_{1}$ and $p = logistic(z)$. How do the odds of the outcome change if you increase $x_{1}$ by two? Demonstrate this.
+$$
+odds = \frac{p}{1-p},p = \frac{e^z}{1+e^z}\\
+odds = e^z\\
+z = \beta_0 + \beta_{1}x_{1}, 
+z'= \beta_0 + \beta_{1}(x_{1}+2)\\
+odds=  e^{\beta_0 + \beta_{1}x_{1}}\\
+odds'=  e^{\beta_0 + \beta_{1}(x_{1}+2)}
+$$
+$$
+\frac{odds'}{odds}=\frac{e^{\beta_0 + \beta_{1}(x_{1}+2)}}{e^{\beta_0 + \beta_{1}x_{1}}}\\
+\frac{odds'}{odds}=e^{2\beta_{1}}
+$$
+So, the odds of the outcome are multiplied by $^{2\beta_{1}}$when $x_1$is increased by two.
+
+Assume now that $\beta_1$ is negative. What value does $p$ approach as $x_{1}$ approaches $\infty$? What value does $p$ approach as $x_{1}$ approaches $-\infty$? Demonstrate.
+
+$$1. \lim_{x_1 \to \infty} p(z) = \lim_{x_1 \to \infty} \frac{e^{\beta_0 + \beta_1 x_1}}{1 + e^{\beta_0 + \beta_1 x_1}} = \frac{0}{1 + 0} = 0
+$$
+
+$$
+2. \lim_{x_1 \to -\infty} p(z) = \lim_{x_1 \to -\infty} \frac{e^{\beta_0 + \beta_1 x_1}}{1 + e^{\beta_0 + \beta_1 x_1}} = \frac{\infty}{1 + \infty} = 1
+$$

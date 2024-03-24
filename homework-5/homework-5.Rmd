@@ -1,0 +1,419 @@
+---
+title: "Homework 5"
+author: "PSTAT 131/231"
+output:
+    html_document:
+      toc: true
+      toc_float: true
+      code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE,
+                      warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(visdat)
+library(ggplot2)
+library(tidymodels)
+library(corrplot)
+library(ggthemes)
+library(janitor)
+library(rpart)
+library(rpart.plot)
+library(mice)
+library(themis)
+library(naniar)
+# install.packages("xgboost")
+library(xgboost)
+# install.packages("ranger")
+library(ranger)
+library(discrim)
+tidymodels_prefer()
+library(randomForest)
+library(dplyr)
+# install.packages("dials")
+library(dials)
+# install.packages("vip")
+library(vip)
+library(ISLR)
+library(ISLR2)
+library(glmnet)
+library(modeldata)
+tidymodels_prefer()
+```
+
+## Homework 5
+
+For this assignment, we will be working with the file `"pokemon.csv"`, found in `/data`. The file is from Kaggle: <https://www.kaggle.com/abcsds/pokemon>.
+
+The [Pokémon](https://www.pokemon.com/us/) franchise encompasses video games, TV shows, movies, books, and a card game. This data set was drawn from the video game series and contains statistics about 721 Pokémon, or "pocket monsters." In Pokémon games, the user plays as a trainer who collects, trades, and battles Pokémon to (a) collect all the Pokémon and (b) become the champion Pokémon trainer.
+
+Each Pokémon has a [primary type](https://bulbapedia.bulbagarden.net/wiki/Type) (some even have secondary types). Based on their type, a Pokémon is strong against some types, and vulnerable to others. (Think rock, paper, scissors.) A Fire-type Pokémon, for example, is vulnerable to Water-type Pokémon, but strong against Grass-type.
+
+![Fig 1. Vulpix, a Fire-type fox Pokémon from Generation 1 (also my favorite Pokémon!)](images/vulpix.png){width="196"}
+
+The goal of this assignment is to build a statistical learning model that can predict the **primary type** of a Pokémon based on its generation, legendary status, and six battle statistics. *This is an example of a **classification problem**, but these models can also be used for **regression problems***.
+
+Read in the file and familiarize yourself with the variables using `pokemon_codebook.txt`.
+
+### Exercise 1
+
+Install and load the `janitor` package. Use its `clean_names()` function on the Pokémon data, and save the results to work with for the rest of the assignment. What happened to the data? Why do you think `clean_names()` is useful?
+
+Every variables name become to lowercase. It is ease to use when we plug the variable in some function since lowercase variable names can be easier to read and work with.
+
+```{r}
+# install.packages("janitor")
+library(janitor)
+
+# Loading the data
+pokemon <- read_csv("Pokemon.csv")
+
+# Cleaning predictor names
+pokemon <- clean_names(pokemon)
+head(pokemon)
+```
+
+### Exercise 2
+
+Using the entire data set, create a bar chart of the outcome variable, `type_1`.
+
+How many classes of the outcome are there? Are there any Pokémon types with very few Pokémon? If so, which ones?
+
+There are 18 classes of the outcome. Flying seems have very few Pokémon. The second rare one is Fairy, and the third on is Ice.
+
+For this assignment, we'll handle the rarer classes by grouping them, or "lumping them," together into an 'other' category. [Using the `forcats` package](https://forcats.tidyverse.org/), determine how to do this, and **lump all the other levels together except for the top 6 most frequent** (which are Bug, Fire, Grass, Normal, Water, and Psychic).
+
+Convert `type_1` and `legendary` to factors.
+
+```{r}
+pokemon %>%
+  ggplot(aes(x = type_1)) +
+  geom_bar() +
+  theme_minimal() +
+  labs(x = "Type 1", y = "Count")
+
+```
+
+```{r}
+# install.packages("forcats")
+library(forcats)
+# convert to factors
+pokemon$type_1 <- as.factor(pokemon$type_1)
+pokemon$legendary <- as.factor(pokemon$legendary)
+
+# lumping them
+pokemon$type_1 <- pokemon$type_1 %>%
+  fct_lump_n(6)
+```
+
+### Exercise 3
+
+Perform an initial split of the data. Stratify by the outcome variable. You can choose a proportion to use. Verify that your training and test sets have the desired number of observations.
+
+Next, use *v*-fold cross-validation on the training set. Use 5 folds. Stratify the folds by `type_1` as well. *Hint: Look for a `strata` argument.*
+
+Why do you think doing stratified sampling for cross-validation is useful?
+
+Using stratified sampling in cross-validation is beneficial because it even type_1 as the outcome evenly distributed across folds.
+
+```{r}
+set.seed(1123)
+pokemon_split <- pokemon %>%
+  initial_split(strata = type_1, prop = 0.7)
+pokemon_train <- training(pokemon_split)
+pokemon_test <- testing(pokemon_split)
+pokemon_fold <- vfold_cv(pokemon_train, strata = type_1, v = 5)
+dim(pokemon_train)
+dim(pokemon_test)
+```
+
+### Exercise 4
+
+Create a correlation matrix of the training set, using the `corrplot` package. *Note: You can choose how to handle the categorical variables for this plot; justify your decision(s).*
+
+What relationships, if any, do you notice?
+
+generation and number have the most strong correlation with each other. Total have high correlation with attack, sp_atk, sp_def. We can try including step_pca() to combat this collinearity or just remove part of them. 
+
+```{r}
+# Visualize the correlation matrix
+Matrix <- cor(pokemon[,sapply(pokemon, is.numeric)])
+corrplot(Matrix, method = "number", type="lower")
+```
+
+### Exercise 5
+
+Set up a recipe to predict `type_1` with `legendary`, `generation`, `sp_atk`, `attack`, `speed`, `defense`, `hp`, and `sp_def`.
+
+-   Dummy-code `legendary` and `generation`;
+
+-   Center and scale all predictors.
+
+```{r}
+pokemon_recipe <- recipe(type_1 ~ legendary + generation + sp_atk + attack + speed + defense + hp + sp_def, data = pokemon_train) %>%
+  # Convert to factor if not already (optional, based on your data)
+  step_mutate(legendary = as.factor(legendary), generation = as.factor(generation)) %>%
+  # Dummy-code all nominal predictors
+  step_dummy(all_nominal_predictors()) %>%
+  # Center and scale numeric predictors
+  step_normalize(all_predictors()) 
+
+prep(pokemon_recipe) %>% bake(new_data = pokemon_train)
+```
+
+### Exercise 6
+
+We'll be fitting and tuning an elastic net, tuning `penalty` and `mixture` (use `multinom_reg()` with the `glmnet` engine).
+
+Set up this model and workflow. Create a regular grid for `penalty` and `mixture` with 10 levels each; `mixture` should range from 0 to 1. For this assignment, let `penalty` range from 0.01 to 3 (this is on the `identity_trans()` scale; note that you'll need to specify these values in base 10 otherwise).
+
+```{r}
+en_spec_pokemon <- multinom_reg(mixture = tune(), 
+                              penalty = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("glmnet")
+
+en_workflow_pokemon <- workflow() %>% 
+  add_recipe(pokemon_recipe) %>% 
+  add_model(en_spec_pokemon)
+
+en_grid <- grid_regular(penalty(range = c(0.01, 3),
+                                trans = identity_trans()),
+                        mixture(range = c(0, 1)),
+                        levels = 10)
+```
+
+### Exercise 7
+
+Now set up a random forest model and workflow. Use the `ranger` engine and set `importance = "impurity"`; we'll be tuning `mtry`, `trees`, and `min_n`. Using the documentation for `rand_forest()`, explain in your own words what each of these hyperparameters represent.
+
+Create a regular grid with 8 levels each. You can choose plausible ranges for each hyperparameter. Note that `mtry` should not be smaller than 1 or larger than 8. **Explain why neither of those values would make sense.**
+
+What type of model does `mtry = 8` represent?
+
+mrty is the number of the vaiables randomly sampled as candidates at each split in a tree. Since we have eight predictor variables, number outside range 1-8 is not plausible.
+
+trees determines the number of trees in the forest. Higher value of trees can generally lead to more stable and robust model but can also be time-cosuming and may be overfitting in the end.
+
+min_n is the minmin number of data points in a node required to attempt a split.
+
+mtry = 8 represent bagging model.
+
+```{r}
+
+rf_class_spec <- rand_forest(mtry = tune(), 
+                           trees = tune(), 
+                           min_n = tune()) %>%
+  set_engine("ranger", importance = "impurity") %>% 
+  set_mode("classification")
+
+rf_class_wf <- workflow() %>% 
+  add_model(rf_class_spec) %>% 
+  add_recipe(pokemon_recipe)
+
+rf_grid <- grid_regular(mtry(range = c(1, 8)), 
+                        trees(range = c(200, 600)),
+                        min_n(range = c(10, 20)),
+                        levels = 8)
+rf_grid
+
+```
+
+### Exercise 8
+
+Fit all models to your folded data using `tune_grid()`.
+
+**Note: Tuning your random forest model will take a few minutes to run, anywhere from 5 minutes to 15 minutes and up. Consider running your models outside of the .Rmd, storing the results, and loading them in your .Rmd to minimize time to knit. We'll go over how to do this in lecture.**
+
+Use `autoplot()` on the results. What do you notice? Do larger or smaller values of `penalty` and `mixture` produce better ROC AUC? What about values of `min_n`, `trees`, and `mtry`?
+
+What elastic net model and what random forest model perform the best on your folded data? (What specific values of the hyperparameters resulted in the optimal ROC AUC?)
+
+The graph for elastic net model showcases that less penalty tends to have greater roc_auc, while the graph for random forest model seems have a insignificant increasing trend for level of trees. Also, node sizen 14 probably great roc_auc
+
+From elastic net model, penalty = 0.01, mixture = 0.33333 model have highest mean on roc_auc also with relatively small std_err.
+
+From random forest model, mtry = 5, and trees = 200, min_n = 14 model have highest mean on roc_auc also with relatively small std_err.
+
+```{r}
+tune_en_pokemon <- tune_grid(
+  en_workflow_pokemon ,
+  resamples = pokemon_fold, 
+  grid = en_grid
+)
+tune_rf_pokemon <- tune_grid(
+  rf_class_wf,
+  resamples = pokemon_fold,
+  grid = rf_grid
+)
+```
+
+```{r}
+autoplot(tune_en_pokemon, metric = "roc_auc") 
+autoplot(tune_rf_pokemon, metric = "roc_auc") 
+```
+
+```{r}
+show_notes(.Last.tune.result)
+```
+
+```{r}
+# Best Elastic Net Model
+show_best(tune_en_pokemon, metric = "roc_auc")
+# Best Random Forest Model
+show_best(tune_rf_pokemon, metric = "roc_auc")
+show_best(tune_en_pokemon, n =1)
+show_best(tune_rf_pokemon, n =1)
+```
+
+### Exercise 9
+
+Select your optimal [**random forest model**]{.underline}in terms of `roc_auc`. Then fit that model to your training set and evaluate its performance on the testing set.
+
+Using the **training** set:
+
+-   Create a variable importance plot, using `vip()`. *Note that you'll still need to have set `importance = "impurity"` when fitting the model to your entire training set in order for this to work.*
+
+    -   What variables were most useful? Which were least useful? Are these results what you expected, or not?
+
+    attack, speed, and sp_ark were most useful, while dummy variable generation were least useful. It is pretty expected that attack, speed and sp_ark are more indicative of a Pokémons' type since designer often created with certain thematic combat ability in mind.
+
+Using the testing set:
+
+-   Create plots of the different ROC curves, one per level of the outcome variable;
+
+-   Make a heat map of the confusion matrix.
+
+    ```{r}
+    best_rf_class <- select_best(tune_rf_pokemon)
+
+    final_rf_model <- finalize_workflow(rf_class_wf, best_rf_class)
+    final_rf_model <- fit(final_rf_model, pokemon_train)
+
+    final_rf_model %>% extract_fit_parsnip() %>% 
+      vip() +
+      theme_minimal()
+    ```
+
+```{r}
+final_rf_model_test <- augment(final_rf_model, pokemon_test) %>%
+  select(type_1, starts_with(".pred"))
+roc_auc(final_rf_model_test, truth = type_1, .pred_Bug:.pred_Other)
+roc_curve(final_rf_model_test, truth = type_1, .pred_Bug:.pred_Other) %>% 
+  autoplot()
+```
+
+```{r}
+conf_mat(final_rf_model_test, truth = type_1, 
+         .pred_class) %>% 
+  autoplot(type = "heatmap")
+```
+
+### Exercise 10
+
+How did your best random forest model do on the testing set?
+
+Which Pokemon types is the model best at predicting, and which is it worst at? (Do you have any ideas why this might be?)
+
+My best random forest model achieved an accuracy of 0.7023 on the testing set, which is a fair performance. The model excelled in predicting the 'Other' category, likely due to the broadness and diversity encompassed within this group, making it more distinct from other types. 'Normal' emerged as the second most accurately predicted type. In contrast, the model struggled with 'Fire' and 'Grass' types. This could be attributed to the potential similarities and overlaps in features among these types, making them more challenging to distinguish accurately. Overall, the model's performance indicates a varying degree of predictiveness across different Pokémon types, influenced by the distinctiveness and variability of each category.
+
+## For 231 Students
+
+### Exercise 11
+
+In the 2020-2021 season, Stephen Curry, an NBA basketball player, made 337 out of 801 three point shot attempts (42.1%). Use bootstrap resampling on a sequence of 337 1's (makes) and 464 0's (misses). For each bootstrap sample, compute and save the sample mean (e.g. bootstrap FG% for the player). Use 1000 bootstrap samples to plot a histogram of those values. Compute the 99% bootstrap confidence interval for Stephen Curry's "true" end-of-season FG% using the quantile function in R. Print the endpoints of this interval.
+
+```{r}
+# Original data
+makes <- rep(1, 337)
+misses <- rep(0, 464)
+shots <- c(makes, misses)
+
+# Bootstrap resampling
+set.seed(1123) 
+bootstrap_means <- replicate(1000, mean(sample(shots, replace = TRUE)))
+
+# Plot histogram
+hist(bootstrap_means, main = "Bootstrap Distribution of FG%", xlab = "Field Goal Percentage")
+
+# Compute 99% Confidence Interval
+conf_interval <- quantile(bootstrap_means, c(0.005, 0.995))
+print(conf_interval)
+
+```
+
+### Exercise 12
+
+Using the `abalone.txt` data from previous assignments, fit and tune a **random forest** model to predict `age`. Use stratified cross-validation and select ranges for `mtry`, `min_n`, and `trees`. Present your results. What was your final chosen model's **RMSE** on your testing set?
+
+My final chosen model's RMSE on my testing set (abalone_test) is 2.128362.
+
+```{r}
+# Load and preprocess the data
+set.seed(1123)
+abalone <- read_csv("abalone.csv")
+abalone <- mutate(abalone, age = abalone$rings + 1.5)
+abalone_split <- abalone %>%
+  initial_split(strata = age, prop = 0.7)
+abalone_train <- training(abalone_split)
+abalone_test <- testing(abalone_split)
+```
+
+```{r}
+abalone_recipe <- recipe(age ~ ., data = abalone_train) %>%
+  step_rm(rings) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_interact(term = ~ starts_with("type"):shucked_weight) %>%
+  step_interact(~ longest_shell:diameter + shucked_weight:shell_weight) %>%
+  step_normalize(all_predictors())
+```
+
+```{r}
+rf_reg_spec <- rand_forest(mtry = tune(), 
+                           trees = tune(), 
+                           min_n = tune()) %>%
+  set_engine("ranger", importance = "impurity") %>% 
+  set_mode("regression")
+
+rf_reg_wf <- workflow() %>% 
+  add_model(rf_reg_spec) %>% 
+  add_recipe(abalone_recipe)
+```
+
+```{r}
+rf_grid <- grid_regular(mtry(range = c(1, 6)), 
+                        trees(range = c(200, 600)),
+                        min_n(range = c(10, 20)),
+                        levels = 5)
+rf_grid
+```
+
+```{r}
+abalone_fold <- vfold_cv(abalone_train, strata = age, v = 5)
+tune_reg <- tune_grid(
+  rf_reg_wf, 
+  resamples = abalone_fold, 
+  grid = rf_grid
+)
+```
+
+```{r}
+autoplot(tune_reg) + theme_minimal()
+```
+
+```{r}
+show_best(tune_reg, n = 1)
+best_rf_reg <- select_best(tune_reg)
+```
+
+```{r}
+final_rf_model <- finalize_workflow(rf_reg_wf, best_rf_reg)
+final_rf_model <- fit(final_rf_model, abalone_train)
+final_rf_model_test <- augment(final_rf_model, abalone_test)
+
+rmse(final_rf_model_test, truth = age, .pred)
+```

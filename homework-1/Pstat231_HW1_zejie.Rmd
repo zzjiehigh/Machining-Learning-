@@ -1,0 +1,204 @@
+---
+title: "Pstat 231 Homework 1"
+author: "Zejie Gao"
+output:
+    html_document:
+      toc: true
+      toc_float: true
+      code_folding: show
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE,
+                      warning = FALSE)
+```
+## Question 1: 
+Define supervised and unsupervised learning. What are the difference between them?
+
+i. In supervised learning, raw observed output (response data) is used to train a model for prediction, with known outputs acting as a guide.
+ii. Unsupervised learning explores relationships between variables or observations without relying on response data.
+iii. Supervised learning requires response data for model prediction, while unsupervised learning lacks such response data and focuses on uncovering hidden insights in the data.
+
+## Question 2: 
+Explain the difference between a regression model and a classification model, specifically in the context of machine learning?
+
+i.When a model is designed to predict a quantitative response variable, it's commonly termed a regression model, while a model predicting a qualitative response is often referred to as a classification model.
+
+## Question 3: 
+Name two commonly used metrics for regression ML problems. Name two commonly used metrics for classification ML problems.
+
+i.regression ML problems: Mean squared Error and Mean absolute error
+
+ii.classification ML problems: Accuracy and Error rate
+
+## Qestion 4:
+As discussed, statistical models can be used for different purposes. These purposes can generally be classified into the following three categories. Provide a brief description of each.
+
+1. Descriptive models: they are chosen to visually emphasize trend in data.
+
+2. Inferential models: they are used to test theories or claims regarding the relationship between outcome and predictor variables.
+
+3. Predictive models: they are aim to forecast Y with minimal reducible error.
+
+## Qestion 5:
+Predictive models are frequently used in machine learning, and they can usually be described as either mechanistic or empirically-driven. 
+
+1. Define mechanistic. Define empirically-driven. How do these model types differ? How are they similar?
+
+   Mechanistic model operate based on established theories or principles about how things function.Empirically-driven learn by observing a large number of examples and identifying patterns from the data.While mechanistic models are grounded in theoretical frameworks, empirically-driven models learn from data without relying on a predefined theory.They both used to predict and explain outcomes. 
+
+2. In general, is a mechanistic or empirically-driven model easier to understand? Explain your choice.
+
+   I believe mechanistic models are generally easier to understand. This is because they begin with a predefined function or framework, which we then refine and optimize. Models built on established physical principles or known mechanisms offer a clear and intuitive foundation, making them more straightforward to our existing knowledge. Empirically-driven model is a little bit abstract.
+
+3. Describe how the bias-variance trade off is related to the use of mechanistic or empirically-driven models.
+   Mechanistic models, with their strong assumptions, tend to exhibit higher bias, whereas the flexibility of empirically-driven models can lead to high variance, highlighting the bias-variance trade-off in model selection.
+   
+## Qestion 6: 
+A political candidate’s campaign has collected some detailed voter history data from their constituents. The campaign is interested in two questions:
+
+1. Given a voter’s profile/data, how likely is it that they will vote in favor of the candidate?
+
+   This is  a predictive question. It leverages historical data to project the likelihood of a voter supporting the candidate based on their profile.
+
+2. How would a voter’s likelihood of support for the candidate change if they had personal contact with the candidate?
+
+   This is an inferential question. It seeks to establish a relationship or causality between the predictor (personal contact with the candidate) and the outcome (voting preference).
+
+## Exploratory Data Analysis
+Exploratory data analysis (or EDA) is not based on a specific set of rules or formulas. It is more of a state of curiosity about data. It’s an iterative process of:
+
+   - generating questions about data
+   
+   - visualize and transform your data as necessary to get answers
+   
+   - use what you learned to generate more questions
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(ggplot2)
+library(corrplot)
+library(ggthemes)
+tidymodels_prefer()
+mpg
+```
+
+## Excercise 1: 
+We are interested in highway miles per gallon, or the hwy variable. 
+
+1. Create a histogram of this variable. 
+```{r}
+ggplot(aes(x=hwy), data = mpg) + 
+  geom_histogram() +
+  labs(title="Histogram of Highway Miles Per Gallon (hwy)", x="Highway Miles Per Gallon (hwy)", y="Frequency")
+```
+
+2. Describe what you see/learn.
+
+   The histogram showcases the highway miles per gallon (hwy) for vehicles, illustrating a bimodal distribution with notable peaks at 15-17 MPG and a more dominant one at 25-28 MPG. This suggests the existence of two distinct groups in terms of fuel efficiency. The data predominantly spans from 10 to 30 MPG and exhibits a subtle rightward skew. 
+   
+## Exercise 2:
+1. Create a scatterplot. Put hwy on the x-axis and cty on the y-axis.
+```{r}
+ggplot(aes(x=hwy, y=cty), data = mpg) + 
+  geom_point() +
+  labs(title="Scatterplot of hwy vs cty", x="Highway Miles Per Gallon (hwy)", y="City Miles Per Gallon (cty)")
+```
+
+2. Describe what you notice. Is there a relationship between hwy and cty? What does this mean?
+
+   The scatterplot depicts a clear positive correlation between highway and city miles per gallon. As the hwy MPG increases, the cty MPG correspondingly rises. This linear relationship suggests that vehicles with higher fuel efficiency on the highway tend to also be more fuel-efficient in the city. 
+   
+## Exercise 3:
+1. Make a bar plot of manufacturer. Flip it so that the manufacturers are on the y-axis. Order the bars by height. 
+```{r}
+ggplot(data = mpg, aes(x = reorder(manufacturer,manufacturer, function(x) - length(x)))) +
+  geom_bar() +
+  coord_flip() +
+  theme_minimal() +
+  xlab("Manufacturer") +
+  ylab("Number of Cars")
+```
+
+2. Which manufacturer produced the most cars? Which produced the least?
+
+   Dodge produced the most cars, while Lincoln produced the least. 
+   
+## Exercise 4:
+1. Make a box plot of hwy, grouped by cyl. Use geom_jitter() and the alpha argument to add points to the plot.
+```{r}
+library(ISLR)
+```
+
+```{r}
+ggplot(data = mpg, aes(x = factor(cyl), y = hwy)) +
+  geom_boxplot() +
+  geom_jitter(alpha = 0.5) +
+  xlab("Cylinders (cyl)") +
+  ylab("Highway MPG (hwy)")
+```
+
+2. Describe what you see. Is there a relationship between hwy and cyl? What do you notice?
+
+   Vehicles with 4 cylinders generally achieve higher highway mpg compared to those with more cylinders. Given the clear negative trend observed in both the scatterplot and the median of the boxplot, there is likely a negative relationship between highway mpg and cylinder count. As the number of cylinders increases, highway mpg tends to decrease.
+   
+## Exercise 5:
+Use the corrplot package to make a lower triangle correlation matrix of the mpg dataset. (Hint: You can find information on the package here.)
+```{r}
+library(corrplot)
+```
+
+```{r}
+Matrix <- cor(mpg[,sapply(mpg, is.numeric)])
+corrplot(Matrix, method = "number", type="lower")
+```
+
+Which variables are positively or negatively correlated with which others? Do these relationships make sense to you? Are there any that surprise you?
+
+Apart from the inherent perfect correlations of variables with themselves, there are notable relationships between other variables. Both cyl and displ as well as hwy and cty exhibit strong positive correlations with each other. On the other hand, cty has negative correlations with both displ and cyl. Similarly, hwy is negatively correlated with displ and cyl. It's surprising to me that vehicle mpg is negatively correlated with engine size and the number of cylinders. I've always held the belief that larger entities are more efficient.
+
+## 231 Students Only:
+## Exercise 6:
+```{r}
+library(ggthemes)
+ggplot(data = mpg, aes(x = hwy, y = factor(class))) + 
+  geom_boxplot(outlier.color = "black") + 
+  geom_jitter(alpha = 0.2, width = 0) + 
+  theme_minimal() +  
+  labs(x = "Highway MPG", y = "Vehicle Class") +
+  scale_x_continuous(breaks = c(20, 30, 40)) +
+  theme(
+    panel.grid.minor.y = element_blank(),
+    axis.line.x = element_line(color = "black", size = 0.5), 
+    panel.grid.minor.x = element_blank()
+  )
+```
+
+## Exercise 7:
+```{r}
+ggplot(data = mpg, aes(y = hwy, x = factor(class))) + 
+  geom_boxplot(outlier.color = "black", aes(fill = drv)) + 
+  theme_gray() +  
+  labs(x = "class", y = "hwy") 
+```
+
+## Exercise 8:
+```{r}
+drv_colors <- c("4" = "salmon2", "f" = "green3", "r" = "dodgerblue1")
+drv_linetypes <- c("4" = "solid", "f" = "dashed", "r" = "longdash")
+
+ggplot(data = mpg, aes(y = hwy, x = displ)) + 
+  geom_jitter(aes(fill = drv, color = drv), width = 0) + 
+  theme_gray() + 
+  labs(x = "displ", y = "hwy") +
+  geom_smooth(data = subset(mpg, drv == "4"), aes(group = drv, linetype = drv), se = FALSE, size = 0.7,color = "blue") +
+  geom_smooth(data = subset(mpg, drv == "f"), aes(group = drv, linetype = drv), se = FALSE, size = 0.7,color = "blue") +
+  geom_smooth(data = subset(mpg, drv == "r"), aes(group = drv, linetype = drv), se = FALSE, size = 0.7,color = "blue") +
+  scale_color_manual(values = drv_colors) +
+  scale_fill_manual(values = drv_colors) +
+  scale_linetype_manual(values = drv_linetypes) +
+  guides(
+    color = guide_legend(override.aes = list(linetype = drv_linetypes)),
+    fill = guide_legend(override.aes = list(shape = 21))
+  )
+```
+
